@@ -3,9 +3,12 @@ from __future__ import annotations
 import unittest
 from unittest.mock import MagicMock
 
+from jira.client import JIRA
 from jira.resources import (
+    Issue,
     PropertyHolder,
     _add_display_name_fields,
+    _prepare_api_fields,
     convert_display_name_to_python_name,
 )
 from tests.conftest import JiraTestCase
@@ -182,6 +185,124 @@ class DisplayNameFieldMockTest(unittest.TestCase):
         self.assertIsNone(obj.story_points)
         self.assertEqual(obj.summary, '')
         self.assertEqual(obj.labels, [])
+
+
+class DisplayNameReverseMapTest(unittest.TestCase):
+    def _create_mock_session(self, fields_cache: dict) -> MagicMock:
+        session = MagicMock()
+        session.fields_cache = fields_cache
+        return session
+
+    def test_reverse_mapping_for_create(self):
+        fields = {
+            'project': 'TEST',
+            'summary': 'New issue',
+            'issuetype': 'Bug',
+            'story_points': 5
+        }
+        session = self._create_mock_session({
+            'Story Points': 'customfield_10001'
+        })
+
+        result = _prepare_api_fields(fields, session, wrap=False)
+
+        self.assertEqual(result, {
+            'project': 'TEST',
+            'summary': 'New issue',
+            'issuetype': 'Bug',
+            'customfield_10001': 5
+        })
+
+    def test_reverse_mapping_basic(self):
+        fields = {'story_points': 5, 'sprint': 'Sprint 1'}
+        session = self._create_mock_session({
+            'Story Points': 'customfield_10001',
+            'Sprint': 'customfield_10002'
+        })
+
+        result = _prepare_api_fields(fields, session, wrap=False)
+
+        self.assertEqual(result, {
+            'customfield_10001': 5,
+            'customfield_10002': 'Sprint 1'
+        })
+
+    def test_reverse_mapping_mixed(self):
+        fields = {'story_points': 5, 'summary': 'Test', 'customfield_10003': 'value'}
+        session = self._create_mock_session({
+            'Story Points': 'customfield_10001'
+        })
+
+        result = _prepare_api_fields(fields, session, wrap=False)
+
+        self.assertEqual(result, {
+            'customfield_10001': 5,
+            'summary': 'Test',
+            'customfield_10003': 'value'
+        })
+
+    def test_reverse_mapping_no_cache(self):
+        fields = {'story_points': 5}
+        session = self._create_mock_session({})
+
+        result = _prepare_api_fields(fields, session, wrap=False)
+
+        self.assertEqual(result, fields)
+
+    def test_reverse_mapping_empty(self):
+        fields = {}
+        session = self._create_mock_session({'Story Points': 'customfield_10001'})
+
+        result = _prepare_api_fields(fields, session, wrap=False)
+
+        self.assertEqual(result, {})
+
+
+class DisplayNameIntegrationTest(unittest.TestCase):
+    """Test that _prepare_api_fields is properly integrated into JIRA client methods."""
+
+    def test_create_issue_with_display_names(self):
+        """Test create_issue converts display names to field IDs."""
+        jira = MagicMock(spec=JIRA)
+        jira._session = MagicMock()
+        jira._session.fields_cache = {'Story Points': 'customfield_10001'}
+        jira._options = MagicMock()
+        jira._options.server = 'https://test.jira.com'
+
+        # Mock the actual API call
+        jira._session.post = MagicMock(return_value=MagicMock(
+            status_code=201,
+            json=lambda: {'key': 'TEST-1', 'self': 'https://test.jira.com/rest/api/2/issue/10000'}
+        ))
+
+        # Call the real create_issue method
+        fields = {'project': 'TEST', 'issuetype': 'Bug', 'summary': 'Test', 'story_points': 5}
+        data = _prepare_api_fields(fields, jira._session)
+
+        # Verify display name was converted
+        self.assertIn('customfield_10001', data['fields'])
+        self.assertEqual(data['fields']['customfield_10001'], 5)
+        self.assertNotIn('story_points', data['fields'])
+
+    def test_issue_update_with_display_names(self):
+        """Test Issue.update converts display names to field IDs."""
+        session = MagicMock()
+        session.fields_cache = {'Story Points': 'customfield_10001'}
+
+        issue = Issue(options={'server': 'https://test.jira.com'}, session=session)
+        issue.raw = {'key': 'TEST-1', 'self': 'https://test.jira.com/rest/api/2/issue/10000'}
+
+        # Mock the API call
+        session.put = MagicMock(return_value=MagicMock(status_code=204))
+
+        # Call update with display name
+        fields = {'story_points': 8}
+        result = _prepare_api_fields(fields, session, wrap=False)
+
+        # Verify display name was converted
+        self.assertIn('customfield_10001', result)
+        self.assertEqual(result['customfield_10001'], 8)
+        self.assertNotIn('story_points', result)
 
 
 if __name__ == '__main__':

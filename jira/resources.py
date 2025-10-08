@@ -842,10 +842,7 @@ class Issue(Resource):
             fieldargs (dict): keyword arguments will generally be merged into fields, except lists, which will be merged into updates
         """
         data = {}
-        if fields is not None:
-            fields_dict = fields
-        else:
-            fields_dict = {}
+        fields_dict = _prepare_api_fields(fields, self._session, wrap=False)
         data["fields"] = fields_dict
         if update is not None:
             update_dict = update
@@ -1701,6 +1698,45 @@ def convert_display_name_to_python_name(display_name: str) -> str:
     if python_name and python_name[0].isdigit():
         python_name = 'field_' + python_name
     return python_name
+
+
+def _prepare_api_fields(
+    fields: dict[str, Any] | None = None,
+    session=None,
+    wrap: bool = True,
+    **fieldargs: Any
+) -> dict[str, Any]:
+    """Prepare fields for JIRA API calls with display name conversion.
+
+    Single source of truth for all field processing sent to JIRA API.
+
+    Args:
+        fields: Dictionary of field names and values
+        session: JIRA session with fields_cache for display name conversion
+        wrap: If True, returns {"fields": converted}, else returns converted dict
+        fieldargs: Alternative way to pass fields as keyword arguments
+
+    Returns:
+        Processed fields dict, optionally wrapped in {"fields": ...}
+    """
+    if fields is not None:
+        field_dict = fields
+    else:
+        field_dict = fieldargs
+
+    # Convert display names to field IDs if session has fields_cache
+    if session and hasattr(session, 'fields_cache') and session.fields_cache:
+        reverse_cache = {
+            convert_display_name_to_python_name(display): field_id
+            for display, field_id in session.fields_cache.items()
+        }
+        field_dict = {
+            reverse_cache.get(name, name): value
+            for name, value in field_dict.items()
+        }
+
+    return {"fields": field_dict} if wrap else field_dict
+
 
 def _add_display_name_fields(obj: PropertyHolder, session) -> None:
     """Create readable field name aliases for JIRA custom fields.

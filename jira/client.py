@@ -78,6 +78,7 @@ from jira.resources import (
     Priority,
     PriorityScheme,
     Project,
+    _prepare_api_fields,
     RemoteLink,
     RequestType,
     Resolution,
@@ -206,12 +207,6 @@ def translate_resource_args(func: Callable):
     return wrapper
 
 
-def _field_worker(
-    fields: dict[str, Any] | None = None, **fieldargs: Any
-) -> dict[str, dict[str, Any]] | dict[str, dict[str, str]]:
-    if fields is not None:
-        return {"fields": fields}
-    return {"fields": fieldargs}
 
 
 ResourceType = TypeVar("ResourceType", contravariant=True, bound=Resource)
@@ -1892,7 +1887,7 @@ class JIRA:
         Returns:
             Issue
         """
-        data: dict[str, Any] = _field_worker(fields, **fieldargs)
+        data: dict[str, Any] = _prepare_api_fields(fields, self._session, **fieldargs)
 
         p = data["fields"]["project"]
 
@@ -1940,7 +1935,7 @@ class JIRA:
         """
         data: dict[str, list] = {"issueUpdates": []}
         for field_dict in field_list:
-            issue_data: dict[str, Any] = _field_worker(field_dict)
+            issue_data: dict[str, Any] = _prepare_api_fields(field_dict, self._session)
             p = issue_data["fields"]["project"]
 
             project_id = None

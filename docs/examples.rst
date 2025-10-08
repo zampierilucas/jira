@@ -307,8 +307,25 @@ Access custom fields using display names instead of ``customfield_XXXX`` IDs::
 Field names are converted to Python identifiers::
 
     # "Story Points" -> story_points
-    # "Epic Link" -> epic_link
+    # "Sprint" -> sprint
     # "3rd Party" -> field_3rd_party
+
+Display names can also be used when creating or updating issues::
+
+    # Create issue with display names
+    issue = jira.create_issue(
+        project='TEST',
+        summary='New feature',
+        issuetype='Story',
+        story_points=5,
+        sprint='Sprint 1'
+    )
+
+    # Update issue with display names
+    issue.update(fields={'story_points': 8})
+
+    # Traditional way still works
+    issue.update(fields={'customfield_10001': 8})
 
 .. note::
     Display name fields won't overwrite existing attributes.
